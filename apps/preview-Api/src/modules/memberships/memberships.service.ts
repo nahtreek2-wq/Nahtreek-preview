@@ -1,0 +1,565 @@
+import {BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException, ServiceUnavailableException, UnauthorizedException} from '@nestjs/common';
+import {MembershipStatus, PaymentStatus} from '@prisma/client';
+import {PrismaService} from '../../common/prisma/prisma.service';
+import {pagination} from '../platform/platform.service';
+import {PushService} from '../notifications/push.service';
+import {ChatGateway} from '../chat/chat.gateway';
+import {RazorpayError, RazorpayProvider, RazorpaySubscription} from '../payments/razorpay.provider';
+import {CancelMembershipDto} from './memberships.dto';
+
+// Pro membership: a Razorpay recurring subscription that buys a lower
+// commission (7% vs 10%), discovery priority and the member badge. Access is
+// effective while the paid period runs, including a cancelled-but-paid tail.
+// Webhooks plus explicit confirm/reconcile keep the row truthful; every
+// transition is idempotent and stale-subscription events are ignored.
+export const MEMBERSHIP_FEE_PAISE = 39900;
+export const AI_SUBSCRIPTION_FEE_PAISE = 12900;
+export const AI_FREE_MESSAGES = 5;
+// Standard commission in basis points, mirrored from the payments module:
+// every job billed below this rate is membership savings the app can prove.
+const STANDARD_FEE_BPS = 1000;
+const AI_SUBSCRIPTION_CYCLES = 120;
+const SUBSCRIPTION_CYCLES = 120;
+
+const REMOTE_STATUS: Record<string, MembershipStatus> = {
+  created: MembershipStatus.PENDING, authenticated: MembershipStatus.PENDING, pending: MembershipStatus.PENDING,
+  active: MembershipStatus.ACTIVE, halted: MembershipStatus.PAST_DUE, paused: MembershipStatus.PAUSED,
+  cancelled: MembershipStatus.CANCELLED, completed: MembershipStatus.EXPIRED, expired: MembershipStatus.EXPIRED,
+};
+
+type Row = {id: string; professionalProfileId: string; providerSubscriptionId: string | null; status: MembershipStatus;
+  currentPeriodStart: Date | null; currentPeriodEnd: Date | null; cancelAtPeriodEnd: boolean; lastChargeAt: Date | null};
+
+@Injectable()
+export class MembershipsService {
+  constructor(private readonly db: PrismaService, private readonly provider: RazorpayProvider,
+    private readonly push: PushService, private readonly realtime: ChatGateway) {}
+
+  get enabled() {
+    return this.provider.enabled && Boolean(process.env.RAZORPAY_MEMBERSHIP_PLAN_ID);
+  }
+
+  private planId() {
+    const id = process.env.RAZORPAY_MEMBERSHIP_PLAN_ID;
+    if (!this.provider.enabled || !id) throw new ServiceUnavailableException(process.env.APP_ENV === 'preview'
+      ? 'Demo mode: membership billing activates once Razorpay test keys and the plan ID are added'
+      : 'Membership billing is not configured');
+    return id;
+  }
+
+  isEffective(m: {status: MembershipStatus; currentPeriodEnd: Date | null}, now = Date.now()) {
+    const billable: MembershipStatus[] = [MembershipStatus.ACTIVE, MembershipStatus.PAST_DUE, MembershipStatus.CANCELLED];
+    return Boolean(m.currentPeriodEnd && m.currentPeriodEnd.getTime() > now && billable.includes(m.status));
+  }
+
+  async isEffectiveByProfile(professionalProfileId: string) {
+    const m = await this.db.membership.findUnique({where: {professionalProfileId}});
+    return m ? this.isEffective(m) : false;
+  }
+
+  private toProviderError(error: unknown): never {
+    if (error instanceof RazorpayError && !error.retryable && error.status < 500)
+      throw new BadRequestException(error.message);
+    throw new ServiceUnavailableException('Billing provider unavailable. Try again.');
+  }
+
+  private viewOf(m: Row) {
+    return {status: m.status, effective: this.isEffective(m), currentPeriodStart: m.currentPeriodStart,
+      currentPeriodEnd: m.currentPeriodEnd, cancelAtPeriodEnd: m.cancelAtPeriodEnd,
+      feePaisa: MEMBERSHIP_FEE_PAISE, currency: 'INR'};
+  }
+
+  private async profileOf(userId: string) {
+    const profile = await this.db.professionalProfile.findUnique({where: {userId}});
+    if (!profile) throw new NotFoundException('Professional account required');
+    return profile;
+  }
+
+  private async tell(userId: string, title: string, body: string, action: string, membershipId: string) {
+    await this.db.notification.create({data: {userId, kind: 'membership', title, body, data: {membershipId}}});
+    await this.db.auditLog.create({data: {userId, entity: 'Membership', entityId: membershipId, action, metadata: {title}}});
+    await this.push.dispatch().catch(() => undefined);
+    this.realtime.emitUserUpdate(userId, 'notifications');
+  }
+
+  private async syncPriority(professionalProfileId: string) {
+    const m = await this.db.membership.findUnique({where: {professionalProfileId}});
+    await this.db.professionalProfile.update({where: {id: professionalProfileId},
+      data: {memberPriority: m ? this.isEffective(m) : false}});
+  }
+
+  async subscribe(userId: string) {
+    const planId = this.planId();
+    const profile = await this.profileOf(userId);
+    let m = await this.db.membership.findUnique({where: {professionalProfileId: profile.id}});
+    if (!m) m = await this.db.membership.create({data: {professionalProfileId: profile.id}});
+    // Active and voluntarily-cancelled rows keep their paid tail; dead
+    // past-due/paused rows fall through and get replaced by a fresh checkout.
+    // The halted predecessor never charges again, so superseding is safe.
+    if (this.isEffective(m) && (m.status === MembershipStatus.ACTIVE || m.status === MembershipStatus.CANCELLED))
+      return {...this.viewOf(m), keyId: this.provider.keyId, subscriptionId: m.providerSubscriptionId, shortUrl: null as string | null};
+    if (m.providerSubscriptionId && m.status === MembershipStatus.PENDING) {
+      try {
+        const remote = await this.provider.fetchSubscription(m.providerSubscriptionId);
+        if (['created', 'authenticated', 'pending'].includes(remote.status) && remote.short_url)
+          return {...this.viewOf(m), keyId: this.provider.keyId, subscriptionId: m.providerSubscriptionId, shortUrl: remote.short_url};
+      } catch (error) {
+        this.toProviderError(error);
+      }
+    }
+    try {
+      const plan = await this.provider.fetchPlan(planId);
+      if (plan.amount !== MEMBERSHIP_FEE_PAISE || plan.currency !== 'INR' || plan.period !== 'monthly')
+        throw new ServiceUnavailableException('Membership billing is misconfigured');
+      const sub = await this.provider.createSubscription({planId, totalCount: SUBSCRIPTION_CYCLES,
+        notes: {membershipId: m.id, professionalProfileId: profile.id}});
+      // Optimistic claim: a racing subscribe wins one row update; the loser
+      // re-reads and returns the winner's live checkout link. Orphaned
+      // Razorpay subscriptions never charge without customer authorization.
+      const claimed = await this.db.membership.updateMany({where: {id: m.id, providerSubscriptionId: m.providerSubscriptionId},
+        data: {providerSubscriptionId: sub.id, status: MembershipStatus.PENDING, cancelAtPeriodEnd: false}});
+      if (!claimed.count) {
+        const current = await this.db.membership.findUniqueOrThrow({where: {id: m.id}});
+        if (current.providerSubscriptionId && current.providerSubscriptionId !== sub.id) {
+          const winner = await this.provider.fetchSubscription(current.providerSubscriptionId);
+          return {...this.viewOf(current), keyId: this.provider.keyId, subscriptionId: current.providerSubscriptionId, shortUrl: winner.short_url ?? null};
+        }
+      }
+      const updated = await this.db.membership.findUniqueOrThrow({where: {id: m.id}});
+      return {...this.viewOf(updated), keyId: this.provider.keyId, subscriptionId: sub.id, shortUrl: sub.short_url ?? null};
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException || error instanceof BadRequestException) throw error;
+      this.toProviderError(error);
+    }
+  }
+
+  async confirm(userId: string) {
+    this.planId();
+    const profile = await this.profileOf(userId);
+    const m = await this.db.membership.findUnique({where: {professionalProfileId: profile.id}});
+    if (!m?.providerSubscriptionId) throw new ConflictException('No membership checkout to confirm');
+    if (this.isEffective(m)) return this.viewOf(m);
+    let remote: RazorpaySubscription;
+    try {
+      remote = await this.provider.fetchSubscription(m.providerSubscriptionId);
+    } catch (error) {
+      this.toProviderError(error);
+    }
+    return this.viewOf(await this.applyRemote(m, remote!));
+  }
+
+  async cancel(userId: string, dto: CancelMembershipDto) {
+    this.planId();
+    const profile = await this.profileOf(userId);
+    const m = await this.db.membership.findUnique({where: {professionalProfileId: profile.id}});
+    if (!m?.providerSubscriptionId) throw new NotFoundException('No membership to cancel');
+    if (m.status === MembershipStatus.CANCELLED || m.status === MembershipStatus.EXPIRED) return this.viewOf(m);
+    try {
+      await this.provider.cancelSubscription(m.providerSubscriptionId);
+    } catch (error) {
+      this.toProviderError(error);
+    }
+    let updated: Row;
+    if (m.status === MembershipStatus.PENDING) {
+      updated = await this.db.membership.update({where: {id: m.id},
+        data: {providerSubscriptionId: null, status: MembershipStatus.NONE}});
+    } else {
+      updated = await this.db.membership.update({where: {id: m.id},
+        data: {status: MembershipStatus.CANCELLED, cancelAtPeriodEnd: true}});
+    }
+    await this.db.auditLog.create({data: {userId, entity: 'Membership', entityId: m.id,
+      action: 'MEMBERSHIP_CANCELLED', metadata: {reason: dto.reason ?? null}}});
+    await this.syncPriority(profile.id);
+    await this.tell(profile.userId, 'Membership cancelled',
+      updated.status === MembershipStatus.CANCELLED && this.isEffective(updated)
+        ? 'Your benefits continue until the paid period ends.' : 'Your membership was cancelled.',
+      'MEMBERSHIP_CANCELLED', m.id);
+    return this.viewOf(updated);
+  }
+
+  async me(userId: string) {
+    const profile = await this.profileOf(userId);
+    const m = await this.db.membership.findUnique({where: {professionalProfileId: profile.id}});
+    const savings = await this.lifetimeSavings(profile.id);
+    if (!m) return {status: MembershipStatus.NONE, effective: false, currentPeriodStart: null,
+      currentPeriodEnd: null, cancelAtPeriodEnd: false, feePaisa: MEMBERSHIP_FEE_PAISE, currency: 'INR', ...savings};
+    return {...this.viewOf(m), ...savings};
+  }
+
+  // Proof that membership pays: every charged job billed below the 10%
+  // standard rate counts its difference as savings. Refunded, failed and
+  // never-charged rows never saved anything, so they stay out.
+  private async lifetimeSavings(professionalProfileId: string) {
+    const rows = await this.db.payment.findMany({where: {professionalProfileId,
+        status: {notIn: [PaymentStatus.NOT_STARTED, PaymentStatus.ORDER_CREATED, PaymentStatus.FAILED, PaymentStatus.REFUNDED]}},
+      select: {amountPaisa: true, platformFeePaisa: true}});
+    let lifetimeSavingsPaisa = 0;
+    let jobsAtMemberRate = 0;
+    for (const row of rows) {
+      const saved = Math.floor((row.amountPaisa * STANDARD_FEE_BPS) / 10000) - row.platformFeePaisa;
+      if (saved > 0) {
+        lifetimeSavingsPaisa += saved;
+        jobsAtMemberRate += 1;
+      }
+    }
+    return {lifetimeSavingsPaisa, jobsAtMemberRate};
+  }
+
+  private async handleAiWebhookEvent(ai: {id: string; userId: string; providerSubscriptionId: string | null},
+      event: {id?: string; event?: string; payload?: any}, entity: any) {
+    if (await this.db.aiSubscriptionEvent.findUnique({where: {providerEventId: event.id!}})) return {ok: true, duplicate: true};
+    await this.db.aiSubscriptionEvent.create({data: {aiSubscriptionId: ai.id, providerEventId: event.id!,
+      eventType: event.event!, payload: event.payload ?? {}}});
+    if (ai.providerSubscriptionId && entity?.id !== ai.providerSubscriptionId) return {ok: true, stale: true};
+    const tellAi = (title: string, body: string, action: string) =>
+      this.tellAi(ai.userId, title, body, action, ai.id);
+    switch (event.event) {
+      case 'subscription.activated':
+      case 'subscription.charged': {
+        let remote: RazorpaySubscription;
+        try {
+          remote = await this.provider.fetchSubscription(entity.id);
+        } catch {
+          break; // Razorpay retries; the row stays as-is.
+        }
+        const updated = await this.aiApplyRemote(ai, remote, event.event === 'subscription.charged');
+        if (updated.status === MembershipStatus.ACTIVE)
+          await tellAi('NAHTREEK AI unlocked', 'Your ₹129 Plus subscription is active. Chat, plan and upload without limits — plus priority service and engineer discounts.', 'AI_SUBSCRIPTION_ACTIVATED');
+        break;
+      }
+      case 'subscription.authenticated':
+        await this.aiApplyRemote(ai, entity);
+        break;
+      case 'subscription.halted': {
+        await this.aiApplyRemote(ai, entity);
+        await tellAi('AI payment failed', 'Your access continues until the paid period ends. Update autopay to stay subscribed.', 'AI_SUBSCRIPTION_PAST_DUE');
+        break;
+      }
+      case 'subscription.paused':
+        await this.aiApplyRemote(ai, entity);
+        break;
+      case 'subscription.resumed': {
+        let remote: RazorpaySubscription;
+        try {
+          remote = await this.provider.fetchSubscription(entity.id);
+        } catch {
+          break;
+        }
+        await this.aiApplyRemote(ai, remote);
+        break;
+      }
+      case 'subscription.cancelled': {
+        await this.aiApplyRemote(ai, entity);
+        await tellAi('AI subscription ended', 'Your access continues until the paid period ends.', 'AI_SUBSCRIPTION_ENDED');
+        break;
+      }
+      case 'subscription.completed':
+      case 'subscription.expired': {
+        await this.aiApplyRemote(ai, entity);
+        await tellAi('AI subscription expired', 'Resubscribe anytime to keep unlimited NAHTREEK AI.', 'AI_SUBSCRIPTION_EXPIRED');
+        break;
+      }
+      default:
+        break;
+    }
+    return {ok: true};
+  }
+
+  private async aiApplyRemote(ai: {id: string; providerSubscriptionId: string | null; status?: MembershipStatus}, remote: RazorpaySubscription, charged = false): Promise<{status: MembershipStatus}> {
+    if (ai.providerSubscriptionId && remote.id !== ai.providerSubscriptionId) return {status: ai.status ?? MembershipStatus.NONE};
+    const status = REMOTE_STATUS[remote.status];
+    if (!status) return {status: ai.status ?? MembershipStatus.NONE};
+    const start = typeof remote.current_start === 'number' ? new Date(remote.current_start * 1000) : undefined;
+    const end = typeof remote.current_end === 'number' ? new Date(remote.current_end * 1000) : undefined;
+    return this.db.aiSubscription.update({where: {id: ai.id}, data: {status,
+      ...(start ? {currentPeriodStart: start} : {}), ...(end ? {currentPeriodEnd: end} : {}),
+      ...(charged ? {lastChargeAt: new Date()} : {}),
+      ...(status === MembershipStatus.CANCELLED ? {cancelAtPeriodEnd: true} : {})}});
+  }
+
+  private async tellAi(userId: string, title: string, body: string, action: string, aiSubscriptionId: string) {
+    await this.db.notification.create({data: {userId, kind: 'membership', title, body, data: {aiSubscriptionId}}});
+    await this.db.auditLog.create({data: {userId, entity: 'AiSubscription', entityId: aiSubscriptionId, action, metadata: {title}}});
+    await this.push.dispatch().catch(() => undefined);
+    this.realtime.emitUserUpdate(userId, 'notifications');
+  }
+
+  private async applyRemote(m: Row, remote: RazorpaySubscription, charged = false) {
+    if (m.providerSubscriptionId && remote.id !== m.providerSubscriptionId) return m; // stale subscription
+    const status = REMOTE_STATUS[remote.status];
+    if (!status) return m;
+    const start = typeof remote.current_start === 'number' ? new Date(remote.current_start * 1000) : undefined;
+    const end = typeof remote.current_end === 'number' ? new Date(remote.current_end * 1000) : undefined;
+    const updated = await this.db.membership.update({where: {id: m.id}, data: {status,
+      ...(start ? {currentPeriodStart: start} : {}), ...(end ? {currentPeriodEnd: end} : {}),
+      ...(charged ? {lastChargeAt: new Date()} : {}),
+      ...(status === MembershipStatus.CANCELLED ? {cancelAtPeriodEnd: true} : {})}});
+    await this.syncPriority(m.professionalProfileId);
+    return updated as Row;
+  }
+
+  async handleWebhook(rawBody: Buffer | string, signature: string) {
+    if (!process.env.RAZORPAY_WEBHOOK_SECRET) throw new ServiceUnavailableException('Billing webhooks are not configured');
+    if (!this.provider.verifyWebhookSignature(rawBody, signature)) throw new UnauthorizedException('Invalid webhook signature');
+    let event: {id?: string; event?: string; payload?: any};
+    try {
+      event = JSON.parse(typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8'));
+    } catch {
+      throw new BadRequestException('Invalid webhook payload');
+    }
+    if (!event?.id || !event?.event) throw new BadRequestException('Invalid webhook payload');
+    const entity = event.payload?.subscription?.entity;
+    let m = entity?.id ? await this.db.membership.findUnique({where: {providerSubscriptionId: entity.id}}) : null;
+    if (!m && entity?.notes?.membershipId)
+      m = await this.db.membership.findUnique({where: {id: entity.notes.membershipId}}).catch(() => null);
+    if (!m) {
+      let ai = entity?.id ? await this.db.aiSubscription.findUnique({where: {providerSubscriptionId: entity.id}}) : null;
+      if (!ai && entity?.notes?.aiSubscriptionId)
+        ai = await this.db.aiSubscription.findUnique({where: {id: entity.notes.aiSubscriptionId}}).catch(() => null);
+      if (!ai) return {ok: true, ignored: true};
+      return this.handleAiWebhookEvent(ai, event, entity);
+    }
+    if (await this.db.membershipEvent.findUnique({where: {providerEventId: event.id}})) return {ok: true, duplicate: true};
+    await this.db.membershipEvent.create({data: {membershipId: m.id, providerEventId: event.id,
+      eventType: event.event!, payload: event.payload ?? {}}});
+    if (m.providerSubscriptionId && entity?.id !== m.providerSubscriptionId) return {ok: true, stale: true};
+    const profile = await this.db.professionalProfile.findUniqueOrThrow({where: {id: m.professionalProfileId}});
+    switch (event.event) {
+      case 'subscription.activated':
+      case 'subscription.charged': {
+        let remote: RazorpaySubscription;
+        try {
+          remote = await this.provider.fetchSubscription(entity.id);
+        } catch {
+          break; // Razorpay retries; the row stays as-is.
+        }
+        const updated = await this.applyRemote(m, remote, event.event === 'subscription.charged');
+        if (updated.status === MembershipStatus.ACTIVE)
+          await this.tell(profile.userId, 'Pro membership active',
+            'You now pay 7% commission and rank higher in discovery.', 'MEMBERSHIP_ACTIVATED', m.id);
+        break;
+      }
+      case 'subscription.authenticated':
+        await this.applyRemote(m, entity);
+        break;
+      case 'subscription.halted': {
+        await this.applyRemote(m, entity);
+        await this.tell(profile.userId, 'Membership payment failed',
+          'Your benefits continue until the paid period ends. Update autopay to stay subscribed.', 'MEMBERSHIP_PAST_DUE', m.id);
+        break;
+      }
+      case 'subscription.paused':
+        await this.applyRemote(m, entity);
+        break;
+      case 'subscription.resumed': {
+        let remote: RazorpaySubscription;
+        try {
+          remote = await this.provider.fetchSubscription(entity.id);
+        } catch {
+          break;
+        }
+        await this.applyRemote(m, remote);
+        break;
+      }
+      case 'subscription.cancelled': {
+        await this.applyRemote(m, entity);
+        await this.tell(profile.userId, 'Membership ended',
+          'Your benefits continue until the paid period ends.', 'MEMBERSHIP_ENDED', m.id);
+        break;
+      }
+      case 'subscription.completed':
+      case 'subscription.expired': {
+        await this.applyRemote(m, entity);
+        await this.tell(profile.userId, 'Membership expired', 'Resubscribe anytime to restore Pro benefits.', 'MEMBERSHIP_EXPIRED', m.id);
+        break;
+      }
+      default:
+        break;
+    }
+    return {ok: true};
+  }
+
+  async adminSummary() {
+    const rows = await this.db.membership.groupBy({by: ['status'], _count: {_all: true}});
+    const byStatus = rows.map(row => ({status: row.status, count: row._count._all}));
+    const active = byStatus.find(row => row.status === MembershipStatus.ACTIVE)?.count ?? 0;
+    return {byStatus, activeSubscriptions: active, monthlyRecurringPaisa: active * MEMBERSHIP_FEE_PAISE,
+      feePaisa: MEMBERSHIP_FEE_PAISE, currency: 'INR'};
+  }
+
+  async listForAdmin(query: {status?: string; page?: string; limit?: string}) {
+    const {page, limit, skip} = pagination(query.page, query.limit);
+    const status = query.status?.trim();
+    if (status && !Object.values(MembershipStatus).includes(status as MembershipStatus))
+      throw new BadRequestException('Invalid membership status');
+    const where = status ? {status: status as MembershipStatus} : {};
+    const [rows, total] = await this.db.$transaction([
+      this.db.membership.findMany({where, orderBy: {updatedAt: 'desc'}, skip, take: limit, include: {
+        profile: {select: {fullName: true, user: {select: {phoneNumber: true, email: true}}}},
+      }}),
+      this.db.membership.count({where}),
+    ]);
+    return {data: rows.map(row => ({id: row.id, status: row.status, effective: this.isEffective(row),
+        currentPeriodStart: row.currentPeriodStart, currentPeriodEnd: row.currentPeriodEnd,
+        cancelAtPeriodEnd: row.cancelAtPeriodEnd, lastChargeAt: row.lastChargeAt,
+        providerSubscriptionId: row.providerSubscriptionId, professionalName: row.profile.fullName,
+        phoneNumber: row.profile.user?.phoneNumber ?? null, email: row.profile.user?.email ?? null})),
+      meta: {page, limit, total, totalPages: Math.ceil(total / limit)}};
+  }
+
+  async reconcile() {
+    const now = new Date();
+    const expired = await this.db.membership.updateMany({where: {currentPeriodEnd: {lte: now},
+        status: {in: [MembershipStatus.ACTIVE, MembershipStatus.PAST_DUE, MembershipStatus.CANCELLED]}},
+      data: {status: MembershipStatus.EXPIRED}});
+    const effective = {status: {in: [MembershipStatus.ACTIVE, MembershipStatus.PAST_DUE, MembershipStatus.CANCELLED]},
+      currentPeriodEnd: {gt: now}};
+    await this.db.professionalProfile.updateMany({where: {membership: effective}, data: {memberPriority: true}});
+    const cleared = await this.db.professionalProfile.updateMany({where: {memberPriority: true, NOT: {membership: effective}},
+      data: {memberPriority: false}});
+    const aiExpired = await this.db.aiSubscription.updateMany({where: {currentPeriodEnd: {lte: now},
+        status: {in: [MembershipStatus.ACTIVE, MembershipStatus.PAST_DUE, MembershipStatus.CANCELLED]}},
+      data: {status: MembershipStatus.EXPIRED}});
+    return {expired: expired.count, cleared: cleared.count, aiExpired: aiExpired.count};
+  }
+
+  // ---- Home Plus subscription (₹129/month, client-side) ----
+  private aiPlanId() {
+    const id = process.env.RAZORPAY_AI_PLAN_ID;
+    if (!id) throw new ServiceUnavailableException('Demo mode: AI billing activates once Razorpay test keys and the AI plan ID are added');
+    return id;
+  }
+
+  private aiViewOf(row: {status: MembershipStatus; currentPeriodStart: Date | null; currentPeriodEnd: Date | null; cancelAtPeriodEnd: boolean; lastChargeAt: Date | null}) {
+    return {status: row.status, effective: this.isEffective(row), currentPeriodStart: row.currentPeriodStart,
+      currentPeriodEnd: row.currentPeriodEnd, cancelAtPeriodEnd: row.cancelAtPeriodEnd, lastChargeAt: row.lastChargeAt,
+      feePaisa: AI_SUBSCRIPTION_FEE_PAISE};
+  }
+
+  async aiFreeUsed(userId: string) {
+    return this.db.aiMessage.count({where: {type: 'USER_TEXT', conversation: {userId}}});
+  }
+
+  isAiEffectiveByUser(userId: string) {
+    return this.db.aiSubscription.findUnique({where: {userId}}).then(row => !!row && this.isEffective(row));
+  }
+
+  async assertAiAccess(userId: string, kind: 'message' | 'plan' | 'upload') {
+    if (await this.isAiEffectiveByUser(userId)) return;
+    if (kind === 'message' && (await this.aiFreeUsed(userId)) < AI_FREE_MESSAGES) return;
+    const message = kind === 'message'
+      ? 'NAHTREEK AI needs a subscription. Your 5 free chats are used — subscribe for ₹129/month to keep going.'
+      : 'Photo uploads and project plans need NAHTREEK Plus (₹129/month) — subscribe to unlock them.';
+    throw new HttpException({statusCode: HttpStatus.PAYMENT_REQUIRED, message, code: 'AI_SUBSCRIPTION_REQUIRED'}, HttpStatus.PAYMENT_REQUIRED);
+  }
+
+  async aiMe(userId: string) {
+    const row = await this.db.aiSubscription.findUnique({where: {userId}});
+    const freeUsed = await this.aiFreeUsed(userId);
+    if (!row) return {status: 'NONE' as MembershipStatus, effective: false, currentPeriodStart: null, currentPeriodEnd: null,
+      cancelAtPeriodEnd: false, lastChargeAt: null, feePaisa: AI_SUBSCRIPTION_FEE_PAISE, freeUsed, freeQuota: AI_FREE_MESSAGES};
+    return {...this.aiViewOf(row), freeUsed, freeQuota: AI_FREE_MESSAGES};
+  }
+
+  async aiSubscribe(userId: string) {
+    const planId = this.aiPlanId();
+    let row = await this.db.aiSubscription.findUnique({where: {userId}});
+    if (!row) row = await this.db.aiSubscription.create({data: {userId}});
+    if (this.isEffective(row) && (row.status === MembershipStatus.ACTIVE || row.status === MembershipStatus.CANCELLED))
+      return {...this.aiViewOf(row), keyId: this.provider.keyId, subscriptionId: row.providerSubscriptionId, shortUrl: null as string | null};
+    if (row.providerSubscriptionId && row.status === MembershipStatus.PENDING) {
+      try {
+        const remote = await this.provider.fetchSubscription(row.providerSubscriptionId);
+        if (['created', 'authenticated', 'pending'].includes(remote.status) && remote.short_url)
+          return {...this.aiViewOf(row), keyId: this.provider.keyId, subscriptionId: row.providerSubscriptionId, shortUrl: remote.short_url};
+      } catch (error) {
+        this.toProviderError(error);
+      }
+    }
+    try {
+      const plan = await this.provider.fetchPlan(planId);
+      if (plan.amount !== AI_SUBSCRIPTION_FEE_PAISE || plan.currency !== 'INR' || plan.period !== 'monthly')
+        throw new BadRequestException('AI plan mismatch — refusing to bill the wrong amount');
+      const sub = await this.provider.createSubscription({planId, totalCount: AI_SUBSCRIPTION_CYCLES,
+        notes: {kind: 'ai-subscription', aiSubscriptionId: row.id, userId}});
+      // Optimistic claim: a racing subscribe wins one row update; the loser
+      // re-reads and returns the winner's live checkout link. Orphaned
+      // Razorpay subscriptions never charge without customer authorization.
+      const claimed = await this.db.aiSubscription.updateMany({where: {id: row.id, providerSubscriptionId: row.providerSubscriptionId},
+        data: {providerSubscriptionId: sub.id, status: MembershipStatus.PENDING, cancelAtPeriodEnd: false}});
+      if (!claimed.count) {
+        const winner = await this.db.aiSubscription.findUniqueOrThrow({where: {id: row.id}});
+        const remote = await this.provider.fetchSubscription(winner.providerSubscriptionId!);
+        return {...this.aiViewOf(winner), keyId: this.provider.keyId, subscriptionId: winner.providerSubscriptionId, shortUrl: remote.short_url ?? null};
+      }
+      const updated = await this.db.aiSubscription.findUniqueOrThrow({where: {id: row.id}});
+      await this.db.auditLog.create({data: {userId, entity: 'AiSubscription', entityId: row.id,
+        action: 'AI_SUBSCRIPTION_STARTED', metadata: {providerSubscriptionId: sub.id}}});
+      return {...this.aiViewOf(updated), keyId: this.provider.keyId, subscriptionId: sub.id, shortUrl: sub.short_url ?? null};
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException || error instanceof BadRequestException) throw error;
+      this.toProviderError(error);
+    }
+  }
+
+  async aiConfirm(userId: string) {
+    const row = await this.db.aiSubscription.findUnique({where: {userId}});
+    if (!row?.providerSubscriptionId) throw new BadRequestException('Start the AI subscription checkout first');
+    const sub = await this.provider.fetchSubscription(row.providerSubscriptionId);
+    if (!['active', 'authenticated'].includes(sub.status)) throw new BadRequestException(`Payment is not complete (provider status: ${sub.status})`);
+    const updated = await this.db.aiSubscription.update({where: {userId}, data: {status: 'ACTIVE', cancelAtPeriodEnd: false,
+      currentPeriodStart: sub.current_start ? new Date(sub.current_start * 1000) : null,
+      currentPeriodEnd: sub.current_end ? new Date(sub.current_end * 1000) : null, lastChargeAt: new Date()}});
+    await this.db.auditLog.create({data: {userId, entity: 'AiSubscription', entityId: row.id,
+      action: 'AI_SUBSCRIPTION_CONFIRMED', metadata: {providerSubscriptionId: row.providerSubscriptionId}}});
+    return this.aiViewOf(updated);
+  }
+
+  // Preview-only demo path so testers can use the full AI subscription
+  // without real money. Hard-gated on APP_ENV: production always refuses.
+  // Effective rows are returned untouched, and any live checkout id is kept
+  // so a real pending checkout or webhook still resolves.
+  async aiDemoActivate(userId: string) {
+    if (process.env.APP_ENV !== 'preview')
+      throw new ForbiddenException('Demo activation is available in preview builds only');
+    let row = await this.db.aiSubscription.findUnique({where: {userId}});
+    if (!row) row = await this.db.aiSubscription.create({data: {userId}});
+    if (this.isEffective(row))
+      return {...this.aiViewOf(row), freeUsed: await this.aiFreeUsed(userId), freeQuota: AI_FREE_MESSAGES};
+    const now = new Date();
+    const updated = await this.db.aiSubscription.update({where: {userId}, data: {status: MembershipStatus.ACTIVE,
+      currentPeriodStart: now, currentPeriodEnd: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+      cancelAtPeriodEnd: false}});
+    await this.db.auditLog.create({data: {userId, entity: 'AiSubscription', entityId: row.id,
+      action: 'AI_SUBSCRIPTION_DEMO_ACTIVATED', metadata: {demo: true}}});
+    return {...this.aiViewOf(updated), freeUsed: await this.aiFreeUsed(userId), freeQuota: AI_FREE_MESSAGES};
+  }
+
+  async aiCancel(userId: string, dto: CancelMembershipDto) {
+    const row = await this.db.aiSubscription.findUnique({where: {userId}});
+    if (!row || !this.isEffective(row)) throw new BadRequestException('No active AI subscription to cancel');
+    if (row.providerSubscriptionId) await this.provider.cancelSubscription(row.providerSubscriptionId);
+    const updated = await this.db.aiSubscription.update({where: {userId}, data: {cancelAtPeriodEnd: true}});
+    await this.db.auditLog.create({data: {userId, entity: 'AiSubscription', entityId: row.id,
+      action: 'AI_SUBSCRIPTION_CANCELLED', metadata: {reason: dto.reason ?? null}}});
+    return this.aiViewOf(updated);
+  }
+
+  async aiAdminSummary() {
+    const active = await this.db.aiSubscription.count({where: {status: 'ACTIVE'}});
+    return {active, mrrPaisa: active * AI_SUBSCRIPTION_FEE_PAISE, feePaisa: AI_SUBSCRIPTION_FEE_PAISE};
+  }
+
+  async aiAdminList(query: {page?: number; pageSize?: number; status?: MembershipStatus}) {
+    const page = Math.max(1, query.page ?? 1);
+    const pageSize = Math.min(50, Math.max(1, query.pageSize ?? 20));
+    const where = query.status ? {status: query.status} : {};
+    const [total, rows] = await this.db.$transaction([
+      this.db.aiSubscription.count({where}),
+      this.db.aiSubscription.findMany({where, orderBy: {updatedAt: 'desc'}, skip: (page - 1) * pageSize, take: pageSize,
+        include: {user: {select: {phoneNumber: true, email: true, displayName: true}}}}),
+    ]);
+    return {page, pageSize, total, rows: rows.map(row => ({id: row.id, ...this.aiViewOf(row), userId: row.userId,
+      phoneNumber: row.user.phoneNumber, email: row.user.email, displayName: row.user.displayName}))};
+  }
+}

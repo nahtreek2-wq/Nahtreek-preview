@@ -1,0 +1,5 @@
+#import <Foundation/Foundation.h>
+@interface PodsDummy_Pods_NahtreekProfessional_NahtreekProfessionalTests : NSObject
+@end
+@implementation PodsDummy_Pods_NahtreekProfessional_NahtreekProfessionalTests
+@end

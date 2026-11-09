@@ -1,0 +1,154 @@
+project.ext.set("REACT_NATIVE_NODE_MODULES_DIR", file("../../../../node_modules/react-native"))
+
+apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+
+project.ext.vectoricons = [
+    iconFontsDir: "../../../../node_modules/react-native-vector-icons/Fonts",
+    iconFontNames: [ "MaterialCommunityIcons.ttf" ]
+]
+apply from: "../../../../node_modules/react-native-vector-icons/fonts.gradle"
+
+/**
+ * This is the configuration block to customize your React Native Android app.
+ * By default you don't need to apply any configuration, just uncomment the lines you need.
+ */
+react {
+    root = file("../../")
+    entryFile = file("../../index.js")
+    reactNativeDir = file("../../../../node_modules/react-native")
+    codegenDir = file("../../../../node_modules/@react-native/codegen")
+    cliFile = file("../../../../node_modules/react-native/cli.js")
+    def hermescOs = System.getProperty("os.name").toLowerCase().contains("mac")
+        ? "osx-bin"
+        : (System.getProperty("os.name").toLowerCase().contains("win") ? "win64-bin" : "linux64-bin")
+    hermesCommand = file("../../../../node_modules/react-native/sdks/hermesc/${hermescOs}/hermesc").path
+    autolinkLibrariesWithApp()
+}
+
+/**
+ * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
+ */
+def enableProguardInReleaseBuilds = true
+
+/**
+ * The preferred build flavor of JavaScriptCore (JSC)
+ *
+ * For example, to use the international variant, you can use:
+ * `def jscFlavor = 'org.webkit:android-jsc-intl:+'`
+ *
+ * The international variant includes ICU i18n library and necessary data
+ * allowing to use e.g. `Date.toLocaleString` and `String.localeCompare` that
+ * give correct results when using with locales other than en-US. Note that
+ * this variant is about 6MiB larger per architecture than default.
+ */
+def jscFlavor = 'org.webkit:android-jsc:+'
+def runtimeApiBaseUrl = (project.findProperty("NAHTREEK_API_BASE_URL") ?: "").toString().trim()
+def internalApiBaseUrl = project.findProperty("NAHTREEK_API_BASE_URL") == null ? "https://nahtreek-api.vercel.app/api/v1" : runtimeApiBaseUrl
+def escapedRuntimeApiBaseUrl = runtimeApiBaseUrl.replace("\\", "\\\\").replace('"', '\\"')
+def escapedInternalApiBaseUrl = internalApiBaseUrl.replace("\\", "\\\\").replace('"', '\\"')
+def runtimeEnvironment = (project.findProperty("NAHTREEK_ENVIRONMENT") ?: "production").toString().trim()
+def escapedRuntimeEnvironment = runtimeEnvironment.replace("\\", "\\\\").replace('"', '\\"')
+def localMapProperties = new Properties()
+def localMapFile = file('../local.properties')
+if (localMapFile.exists()) localMapFile.withInputStream { localMapProperties.load(it) }
+def previewMapKey = (System.getenv("GEOAPIFY_API_KEY") ?: localMapProperties.getProperty("geoapify.apiKey", "")).trim()
+def productionMapKey = (System.getenv("GEOAPIFY_API_KEY") ?: "").trim()
+def escapedPreviewMapKey = previewMapKey.replace("\\", "\\\\").replace('"', '\\"')
+def escapedProductionMapKey = productionMapKey.replace("\\", "\\\\").replace('"', '\\"')
+def signingPath = System.getenv("NAHTREEK_SIGNING_FILE")
+def signingPassword = System.getenv("NAHTREEK_SIGNING_PASSWORD")
+def signingAlias = System.getenv("NAHTREEK_SIGNING_ALIAS")
+def configuredVersionCode = (project.findProperty("NAHTREEK_VERSION_CODE") ?: System.getenv("NAHTREEK_VERSION_CODE"))?.toString()?.trim()
+def configuredVersionName = (project.findProperty("NAHTREEK_VERSION_NAME") ?: System.getenv("NAHTREEK_VERSION_NAME"))?.toString()?.trim()
+def appVersionCode = configuredVersionCode ? Integer.parseInt(configuredVersionCode) : 1
+
+android {
+    ndkVersion rootProject.ext.ndkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    compileSdk rootProject.ext.compileSdkVersion
+
+    namespace "com.nahtreek.professional"
+    defaultConfig {
+        applicationId "com.nahtreek.professional"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode appVersionCode
+        versionName configuredVersionName ?: "1.0"
+        buildConfigField "String", "NAHTREEK_API_BASE_URL", "\"${escapedRuntimeApiBaseUrl}\""
+        buildConfigField "String", "NAHTREEK_ENVIRONMENT", "\"${escapedRuntimeEnvironment}\""
+        buildConfigField "String", "GEOAPIFY_API_KEY", '""'
+    }
+    signingConfigs {
+        configured {
+            if (signingPath) storeFile file(signingPath)
+            storePassword signingPassword
+            keyAlias signingAlias
+            keyPassword signingPassword
+        }
+        // No explicit debug keystore: Gradle falls back to the developer's own
+        // ~/.android/debug.keystore. A shared debug key must never be
+        // committed — anyone holding it can sign updates for sideloaded
+        // preview builds.
+    }
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+            manifestPlaceholders = [usesCleartextTraffic: "true"]
+            buildConfigField "String", "NAHTREEK_ENVIRONMENT", '"development"'
+            buildConfigField "String", "GEOAPIFY_API_KEY", "\"${escapedPreviewMapKey}\""
+        }
+        release {
+            manifestPlaceholders = [usesCleartextTraffic: "false"]
+            signingConfig signingConfigs.configured
+            buildConfigField "String", "GEOAPIFY_API_KEY", "\"${escapedProductionMapKey}\""
+            minifyEnabled enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+        }
+        internal {
+            initWith release
+            applicationIdSuffix ".internal"
+            matchingFallbacks = ['release']
+            signingConfig signingPath ? signingConfigs.configured : signingConfigs.debug
+            buildConfigField "String", "NAHTREEK_ENVIRONMENT", '"staging"'
+            buildConfigField "String", "NAHTREEK_API_BASE_URL", "\"${escapedInternalApiBaseUrl}\""
+            buildConfigField "String", "GEOAPIFY_API_KEY", "\"${escapedPreviewMapKey}\""
+            resValue "string", "app_name", "Nahtreek Pro"
+        }
+    }
+}
+
+tasks.register("validateProductionConfiguration") {
+    doLast {
+        def uri = runtimeApiBaseUrl ? new URI(runtimeApiBaseUrl) : null
+        if (!uri || uri.scheme != 'https' || !uri.host || uri.userInfo ||
+            uri.host == 'localhost' || uri.host.endsWith('.local') ||
+            uri.host ==~ /[0-9.]+/ || uri.host.contains('ngrok') || uri.host.contains('loca.lt')) {
+            throw new GradleException("A stable HTTPS API endpoint is required for production.")
+        }
+        if (runtimeEnvironment != 'production' || !signingPath || !signingPassword || !signingAlias) {
+            throw new GradleException("Production requires environment=production and protected release signing credentials.")
+        }
+        if (!configuredVersionCode || appVersionCode <= 1 || !configuredVersionName) {
+            throw new GradleException("Production requires NAHTREEK_VERSION_CODE > 1 and NAHTREEK_VERSION_NAME; confirm the code exceeds the published version.")
+        }
+        if (!productionMapKey) {
+            throw new GradleException("Production requires GEOAPIFY_API_KEY for the in-app map.")
+        }
+    }
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn "validateProductionConfiguration" }
+
+dependencies {
+    // The version of react-native is set by the React Native Gradle Plugin
+    implementation("com.facebook.react:react-android")
+
+    if (hermesEnabled.toBoolean()) {
+        implementation("com.facebook.react:hermes-android")
+    } else {
+        implementation jscFlavor
+    }
+}
+
+apply from: "../../../../packages/android-push/firebase.gradle"

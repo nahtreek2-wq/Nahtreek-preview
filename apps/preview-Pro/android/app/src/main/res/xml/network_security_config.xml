@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Production policy: system certificate authorities only, no cleartext
+     traffic anywhere. The debug source set overlays a copy of this file that
+     additionally trusts user CAs and allows cleartext to the Metro bundler. -->
+<network-security-config>
+  <base-config cleartextTrafficPermitted="false">
+    <trust-anchors>
+      <certificates src="system" />
+    </trust-anchors>
+  </base-config>
+</network-security-config>

@@ -1,0 +1,23 @@
+# Never commit credentials from either application or the backend.
+.env
+.env.*
+!.env.example
+**/local.properties
+node_modules/
+**/dist/
+**/build/
+*.apk
+*.aab
+.vercel/
+*.credentials.local.json
+*.demo-credentials.local.md
+**/google-services.json
+**/*service-account*.json
+# Keystores must NEVER be committed. CI receives the release key as a base64
+# secret; debug builds use each developer's own ~/.android/debug.keystore.
+*.keystore
+*.jks
+.local-private/
+**/nahtreek-preview-*.json
+.DS_Store
+**/.android-signing/

@@ -1,0 +1,12 @@
+{
+  "name": "@nahtreek/admin-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:preview": "ADMIN_ENV=preview node scripts/build.mjs",
+    "build:production": "ADMIN_ENV=production node scripts/build.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}

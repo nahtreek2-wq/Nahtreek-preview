@@ -1,0 +1,8 @@
+ALTER TABLE "ProfessionalProfile"
+  ALTER COLUMN "fullName" SET DEFAULT '',
+  ALTER COLUMN "title" SET DEFAULT '',
+  ALTER COLUMN "baseCity" SET DEFAULT '',
+  ALTER COLUMN "baseState" SET DEFAULT '',
+  ALTER COLUMN "baseLatitude" DROP NOT NULL,
+  ALTER COLUMN "baseLongitude" DROP NOT NULL,
+  ADD COLUMN "onboardingStep" TEXT NOT NULL DEFAULT 'IDENTITY';

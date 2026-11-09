@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#071f3d" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' __NAHTREEK_API_ORIGIN__; img-src 'self' data: https:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; upgrade-insecure-requests" />
+    <title>NAHTREEK Operations Console</title>
+    <link rel="icon" href="./assets/nahtreek-logo.png" />
+    <link rel="stylesheet" href="./styles/tokens.css" />
+    <link rel="stylesheet" href="./styles/base.css" />
+    <link rel="stylesheet" href="./styles/auth.css" />
+    <link rel="stylesheet" href="./styles/dashboard.css" />
+    <link rel="stylesheet" href="./styles/responsive.css" />
+  </head>
+  <body>
+    <div id="boot-view" class="boot-shell" aria-label="Loading operations console">
+      <img class="brand-logo brand-logo-large boot-logo" src="./assets/nahtreek-logo.png" alt="NAHTREEK" />
+      <p class="boot-text">Loading console<span aria-hidden="true" class="boot-dots"></span></p>
+    </div>
+    <main id="login-view" class="login-shell hidden">
+      <section class="login-brand" aria-label="NAHTREEK administration">
+        <div class="brand-identity">
+          <img class="brand-logo brand-logo-large" src="./assets/nahtreek-logo.png" alt="NAHTREEK" />
+          <div><strong>NAHTREEK</strong><span>From plot to home</span></div>
+        </div>
+        <div class="login-message">
+          <p class="eyebrow">NAHTREEK OPERATIONS</p>
+          <h1>Run a safe and trusted marketplace.</h1>
+          <p>Review professionals, support users and protect every account from one secure console.</p>
+        </div>
+        <div class="trust-note"><span aria-hidden="true">✓</span> Administrative actions are protected and recorded.</div>
+      </section>
+      <section class="login-card" aria-labelledby="login-title">
+        <div class="mobile-brand brand-identity">
+          <img class="brand-logo" src="./assets/nahtreek-logo.png" alt="" />
+          <div><strong>NAHTREEK</strong><span>Operations console</span></div>
+        </div>
+        <span id="login-environment" class="environment-chip"></span>
+        <p class="eyebrow gold">SECURE ADMIN ACCESS</p>
+        <h2 id="login-title">Operations console</h2>
+        <p class="muted">Use an authorised NAHTREEK administrator account.</p>
+        <form id="login-form">
+          <label>Email address<input id="email" type="email" inputmode="email" autocomplete="username" maxlength="254" required /></label>
+          <label>Password
+            <span class="password-field">
+              <input id="password" type="password" autocomplete="current-password" maxlength="128" required />
+              <button id="password-toggle" class="password-toggle" type="button" aria-pressed="false" aria-label="Show password">Show</button>
+            </span>
+          </label>
+          <p id="caps-warning" class="warning form-message hidden" role="status">Caps Lock is on — passwords are case-sensitive.</p>
+          <p id="login-error" class="error form-message" role="alert"></p>
+          <button id="login-button" class="button primary full-width" type="submit">Sign in securely</button>
+        </form>
+      </section>
+    </main>
+
+    <main id="dashboard-view" class="dashboard hidden">
+      <header class="mobile-admin-bar">
+        <div class="mobile-admin-brand"><img class="brand-logo" src="./assets/nahtreek-logo.png" alt="NAHTREEK" /><div><strong>NAHTREEK</strong><span id="mobile-page-title">Dashboard</span></div></div>
+        <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Open administration menu" aria-expanded="false" aria-controls="admin-sidebar"><span></span><span></span><span></span></button>
+      </header>
+      <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Close administration menu"></button>
+      <aside id="admin-sidebar" class="sidebar">
+        <div class="brand-row brand-identity">
+          <img class="brand-logo" src="./assets/nahtreek-logo.png" alt="NAHTREEK" />
+          <div><strong>NAHTREEK</strong><span>Operations console</span></div>
+          <button id="menu-close" class="menu-close" type="button" aria-label="Close administration menu">×</button>
+        </div>
+        <nav aria-label="Admin navigation">
+          <p class="nav-caption" aria-hidden="true">Overview</p>
+          <button class="nav-item nav-active" type="button" data-view="overview"><span aria-hidden="true">⌂</span><b>Dashboard</b></button>
+          <p class="nav-caption" aria-hidden="true">Operations</p>
+          <button class="nav-item" type="button" data-view="verification"><span aria-hidden="true">✓</span><b>Verifications</b><em id="verification-nav-count">0</em></button>
+          <button class="nav-item" type="button" data-view="users"><span aria-hidden="true">◎</span><b>Users</b></button>
+          <p class="nav-caption" aria-hidden="true">Money</p>
+          <button class="nav-item" type="button" data-view="payments"><span aria-hidden="true">₹</span><b>Payments</b></button>
+          <button class="nav-item" type="button" data-view="memberships"><span aria-hidden="true">★</span><b>Memberships</b></button>
+          <p class="nav-caption" aria-hidden="true">System</p>
+          <button class="nav-item" type="button" data-view="activity"><span aria-hidden="true">≋</span><b>Activity</b></button>
+          <button class="nav-item" type="button" data-view="settings"><span aria-hidden="true">⚙</span><b>My account</b></button>
+        </nav>
+        <div class="sidebar-foot">
+          <div><small>Signed in as</small><span id="admin-name">Administrator</span></div>
+          <button id="logout-button" class="logout-button" type="button"><span aria-hidden="true">↪</span> Sign out</button>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <div class="workspace-inner">
+          <section id="overview-view" class="page-view">
+            <header class="topbar compact-topbar">
+              <div>
+                <div class="heading-line"><p class="eyebrow gold">OPERATIONS OVERVIEW</p><span id="dashboard-environment" class="environment-chip"></span></div>
+                <h1>Good to see you, <span id="admin-greeting">Administrator</span>.</h1>
+                <p class="muted">Here is what needs attention across NAHTREEK today.</p>
+              </div>
+              <button id="overview-refresh" class="button secondary refresh-button" type="button"><span aria-hidden="true">↻</span> Refresh</button>
+            </header>
+            <section id="overview-summary" class="summary overview-summary" aria-label="Operations summary"></section>
+            <section class="overview-grid">
+              <article class="surface attention-card">
+                <div class="panel-heading"><div><p class="eyebrow gold">ACTION CENTRE</p><h2>What needs attention</h2></div><span id="overview-updated" class="updated-label"></span></div>
+                <div id="attention-list" class="attention-list"></div>
+              </article>
+              <article class="surface role-card">
+                <div class="panel-heading"><div><p class="eyebrow gold">MARKETPLACE</p><h2>People by role</h2></div></div>
+                <div id="role-breakdown" class="role-breakdown"></div>
+              </article>
+            </section>
+          </section>
+
+          <section id="verification-view" class="page-view hidden">
+            <header class="topbar compact-topbar">
+              <div><p class="eyebrow gold">TRUST &amp; SAFETY</p><h1>Professional verification</h1><p class="muted">Approve complete applications before profiles become visible to clients.</p></div>
+              <button id="refresh-button" class="button secondary refresh-button" type="button"><span aria-hidden="true">↻</span> Refresh</button>
+            </header>
+            <section id="summary" class="summary" aria-label="Verification summary"></section>
+            <section class="review-layout">
+              <div class="queue-panel">
+                <div class="toolbar">
+                  <label><span>Status</span><select id="status-filter"><option value="UNDER_REVIEW">Under review</option><option value="PENDING">Pending</option><option value="REJECTED">Rejected</option><option value="VERIFIED">Verified</option><option value="">All profiles</option></select></label>
+                  <label class="search-field"><span>Search</span><input id="search" type="search" autocomplete="off" placeholder="Name, city, email or mobile" /></label>
+                </div>
+                <div id="queue-status" class="muted status-line" aria-live="polite"></div>
+                <div id="queue" class="queue"></div>
+              </div>
+              <article id="detail" class="detail-panel"><div class="empty-detail"><div class="empty-icon" aria-hidden="true">✓</div><h2>Select an application</h2><p>Choose a professional to review their profile and documents.</p></div></article>
+            </section>
+          </section>
+
+          <section id="users-view" class="page-view hidden">
+            <header class="topbar compact-topbar">
+              <div><p class="eyebrow gold">ACCOUNT OPERATIONS</p><h1>User management</h1><p class="muted">Find clients and professionals, review account information and control access safely.</p></div>
+              <button id="users-refresh" class="button secondary refresh-button" type="button"><span aria-hidden="true">↻</span> Refresh</button>
+            </header>
+            <section class="user-layout">
+              <div class="queue-panel user-list-panel">
+                <div class="user-toolbar">
+                  <label><span>Role</span><select id="user-role-filter"><option value="">All roles</option><option value="CLIENT">Clients</option><option value="ENGINEER">Engineers</option><option value="SERVICE_PROVIDER">Service providers</option></select></label>
+                  <label><span>Status</span><select id="user-status-filter"><option value="">All statuses</option><option value="ACTIVE">Active</option><option value="PENDING_VERIFICATION">Pending</option><option value="SUSPENDED">Suspended</option><option value="DEACTIVATED">Deactivated</option></select></label>
+                  <label class="search-field"><span>Search</span><input id="user-search" type="search" autocomplete="off" placeholder="Name, email or mobile" /></label>
+                </div>
+                <div id="user-list-status" class="muted status-line" aria-live="polite"></div>
+                <div id="user-list" class="queue"></div>
+              </div>
+              <article id="user-detail" class="detail-panel"><div class="empty-detail"><div class="empty-icon" aria-hidden="true">◎</div><h2>Select a user</h2><p>Choose an account to view identity, role, activity and access controls.</p></div></article>
+            </section>
+          </section>
+
+          <section id="payments-view" class="page-view hidden">
+            <header class="topbar compact-topbar">
+              <div><p class="eyebrow gold">MONEY OPERATIONS</p><h1>Payments</h1><p class="muted">Held booking payments, stuck releases, disputes and refunds.</p></div>
+              <button id="payments-refresh" class="button secondary refresh-button" type="button"><span aria-hidden="true">↻</span> Refresh</button>
+            </header>
+            <section id="payments-summary" class="summary" aria-label="Payments summary"></section>
+            <section class="user-layout">
+              <div class="queue-panel user-list-panel">
+                <div class="user-toolbar">
+                  <label><span>Status</span><select id="payment-status-filter"><option value="">All statuses</option><option value="DISPUTED">Disputed</option><option value="RELEASE_PENDING">Release pending</option><option value="REFUND_PENDING">Refund pending</option><option value="HELD">Held</option><option value="PAID">Paid</option><option value="RELEASED">Released</option><option value="REFUNDED">Refunded</option><option value="ORDER_CREATED">Unpaid orders</option><option value="FAILED">Failed</option><option value="COLLECTED_UNSETTLED">Dues outstanding</option><option value="SETTLED">Dues settled</option></select></label>
+                </div>
+                <div id="payment-list-status" class="muted status-line" aria-live="polite"></div>
+                <div id="payment-list" class="queue"></div>
+              </div>
+              <article id="payment-detail" class="detail-panel"><div class="empty-detail"><div class="empty-icon" aria-hidden="true">₹</div><h2>Select a payment</h2><p>Choose a payment to review the money movement and act on it.</p></div></article>
+            </section>
+          </section>
+
+          <section id="memberships-view" class="page-view hidden">
+            <header class="topbar compact-topbar">
+              <div><p class="eyebrow gold">RECURRING REVENUE</p><h1>Memberships</h1><p class="muted">Pro subscriptions, renewals and lapsed members.</p></div>
+              <button id="memberships-refresh" class="button secondary refresh-button" type="button"><span aria-hidden="true">↻</span> Refresh</button>
+            </header>
+            <section id="memberships-summary" class="summary" aria-label="Membership summary"></section>
+            <section class="user-layout">
+              <div class="queue-panel user-list-panel">
+                <div class="user-toolbar">
+                  <label><span>Status</span><select id="membership-status-filter"><option value="">All statuses</option><option value="ACTIVE">Active</option><option value="PAST_DUE">Past due</option><option value="PENDING">Pending</option><option value="PAUSED">Paused</option><option value="CANCELLED">Cancelled</option><option value="EXPIRED">Expired</option></select></label>
+                </div>
+                <div id="membership-list-status" class="muted status-line" aria-live="polite"></div>
+                <div id="membership-list" class="queue"></div>
+              </div>
+              <article id="membership-detail" class="detail-panel"><div class="empty-detail"><div class="empty-icon" aria-hidden="true">★</div><h2>Select a membership</h2><p>Choose a subscription to review its status and billing period.</p></div></article>
+            </section>
+            <section class="ai-memberships" aria-label="Home AI subscriptions">
+              <div><p class="eyebrow gold">HOME APP REVENUE</p><h2>NAHTREEK AI subscriptions</h2><p class="muted">₹99/month Home plans, renewals and lapsed subscribers.</p><p id="ai-engine-status" class="status-line" aria-live="polite"></p></div>
+              <section id="ai-memberships-summary" class="summary" aria-label="AI subscription summary"></section>
+              <div class="queue-panel user-list-panel">
+                <div class="user-toolbar">
+                  <label><span>Status</span><select id="ai-membership-status-filter"><option value="">All statuses</option><option value="ACTIVE">Active</option><option value="PAST_DUE">Past due</option><option value="PENDING">Pending</option><option value="PAUSED">Paused</option><option value="CANCELLED">Cancelled</option><option value="EXPIRED">Expired</option></select></label>
+                </div>
+                <div id="ai-membership-list-status" class="muted status-line" aria-live="polite"></div>
+                <div id="ai-membership-list" class="queue"></div>
+              </div>
+            </section>
+          </section>
+
+          <section id="activity-view" class="page-view hidden">
+            <header class="topbar compact-topbar">
+              <div><p class="eyebrow gold">ACCOUNTABILITY</p><h1>Admin activity</h1><p class="muted">Recent verification, profile and account-access actions performed by administrators.</p></div>
+              <button id="activity-refresh" class="button secondary refresh-button" type="button"><span aria-hidden="true">↻</span> Refresh</button>
+            </header>
+            <article class="surface activity-surface">
+              <div id="activity-status" class="muted status-line" aria-live="polite"></div>
+              <div id="activity-list" class="activity-list"></div>
+            </article>
+          </section>
+
+          <section id="settings-view" class="page-view hidden">
+            <header class="topbar compact-topbar">
+              <div><p class="eyebrow gold">MY ACCOUNT</p><h1>Administrator profile</h1><p class="muted">Manage the name shown inside the operations console.</p></div>
+            </header>
+            <section class="settings-layout">
+              <article class="surface settings-card">
+                <div class="settings-intro"><div class="admin-avatar" id="settings-avatar">NA</div><div><h2 id="settings-name">NAHTREEK Administrator</h2><p class="muted">Authorised administrator</p></div></div>
+                <form id="settings-form" class="settings-form">
+                  <label>Display name<input id="settings-display-name" minlength="2" maxlength="80" required /></label>
+                  <label>Email address<input id="settings-email" type="email" readonly /></label>
+                  <label>Mobile number<input id="settings-phone" readonly /></label>
+                  <p class="control-note">Email and mobile changes require a separate identity-verification workflow and cannot be edited here.</p>
+                  <p id="settings-error" class="error form-message" role="alert"></p>
+                  <button id="settings-save" class="button primary" type="submit">Save profile</button>
+                </form>
+              </article>
+              <article class="surface settings-security"><p class="eyebrow gold">SECURITY</p><h2>Protected administration</h2><ul><li>Sessions sign out automatically after 15 minutes of inactivity and clear on-screen data.</li><li>Refunds and dispute resolutions need an audit note plus a typed confirmation.</li><li>All profile and user edits are written to the audit trail.</li><li>User roles and verification status cannot be changed from the profile editor.</li><li>Account restrictions immediately revoke the affected user's sessions.</li></ul></article>
+            </section>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="reason-dialog">
+      <form method="dialog" id="reason-form">
+        <h2 id="reason-title">Give a reason</h2>
+        <p class="muted">This message will be shown to the professional.</p>
+        <label>Reason<textarea id="reason" minlength="3" maxlength="500" required></textarea></label>
+        <p id="reason-error" class="error form-message" role="alert"></p>
+        <div class="dialog-actions"><button class="button secondary" value="cancel">Cancel</button><button id="reason-submit" class="button danger" value="default">Confirm rejection</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="account-dialog">
+      <form method="dialog" id="account-form">
+        <span id="account-dialog-tag" class="danger-tag">Account access</span>
+        <h2 id="account-dialog-title">Change account access?</h2>
+        <p id="account-dialog-copy" class="muted"></p>
+        <label id="account-reason-label">Reason<textarea id="account-reason" minlength="3" maxlength="500"></textarea></label>
+        <p id="account-error" class="error form-message" role="alert"></p>
+        <div class="dialog-actions"><button class="button secondary" value="cancel">Cancel</button><button id="account-submit" class="button danger" value="default">Confirm</button></div>
+      </form>
+    </dialog>
+    <dialog id="user-edit-dialog">
+      <form method="dialog" id="user-edit-form">
+        <p class="eyebrow gold">USER PROFILE</p>
+        <h2>Edit user details</h2>
+        <p class="muted">Identity-contact fields, roles and verification decisions remain protected.</p>
+        <div class="dialog-form-grid">
+          <label>Display name<input id="user-edit-name" minlength="2" maxlength="120" required /></label>
+          <label>City or town<input id="user-edit-city" minlength="2" maxlength="120" required /></label>
+          <label>State<input id="user-edit-state" minlength="2" maxlength="120" required /></label>
+          <label id="user-edit-title-label">Professional title<input id="user-edit-title" minlength="2" maxlength="120" /></label>
+        </div>
+        <p id="user-edit-error" class="error form-message" role="alert"></p>
+        <div class="dialog-actions"><button class="button secondary" value="cancel">Cancel</button><button id="user-edit-submit" class="button primary" value="default">Save changes</button></div>
+      </form>
+    </dialog>
+    <dialog id="money-dialog">
+      <form method="dialog" id="money-form">
+        <span class="danger-tag">Money movement</span>
+        <h2 id="money-dialog-title">Act on payment</h2>
+        <p id="money-dialog-copy" class="muted"></p>
+        <label>Audit note<textarea id="money-note" minlength="10" maxlength="500" required></textarea></label>
+        <label>Type to confirm<input id="money-confirm" autocomplete="off" maxlength="20" placeholder="Type to confirm" /></label>
+        <p id="money-error" class="error form-message" role="alert"></p>
+        <div class="dialog-actions"><button class="button secondary" value="cancel">Cancel</button><button id="money-submit" class="button danger" value="default">Confirm</button></div>
+      </form>
+    </dialog>
+    <dialog id="idle-dialog">
+      <form method="dialog" id="idle-form">
+        <span class="danger-tag">Session expiring</span>
+        <h2>Still working?</h2>
+        <p class="muted">For security, inactive admin sessions sign out automatically and clear on-screen account data.</p>
+        <p id="idle-countdown" class="idle-countdown" role="status" aria-live="polite"></p>
+        <div class="dialog-actions"><button id="idle-logout" class="button secondary" value="cancel">Sign out now</button><button id="idle-stay" class="button primary" value="default">Stay signed in</button></div>
+      </form>
+    </dialog>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <noscript><p style="padding:24px;text-align:center">The operations console needs JavaScript to run. Please enable it and reload.</p></noscript>
+    <script src="./config.js"></script>
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>

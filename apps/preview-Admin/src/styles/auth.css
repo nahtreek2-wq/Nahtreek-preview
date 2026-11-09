@@ -1,0 +1,21 @@
+.login-shell { min-height: 100vh; min-height: 100dvh; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(400px, 0.9fr); background: var(--white); }
+.login-brand { position: relative; min-height: 100%; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; padding: clamp(36px, 5vw, 72px); color: var(--white); background: linear-gradient(150deg, var(--deep-navy) 30%, var(--navy)); }
+.login-brand::before { content: ""; position: absolute; width: min(40vw, 560px); aspect-ratio: 1; right: -16%; bottom: -30%; border: 1px solid rgba(242, 184, 75, 0.25); border-radius: 50%; box-shadow: 0 0 0 60px rgba(242, 184, 75, 0.03), 0 0 0 120px rgba(242, 184, 75, 0.02); }
+.login-brand > * { position: relative; z-index: 1; }
+.login-message { max-width: 560px; padding: 56px 0; }
+.login-message .eyebrow { color: var(--yellow); }
+.login-message h1 { max-width: 520px; font-size: clamp(2rem, 3.6vw, 3.2rem); line-height: 1.12; }
+.login-message > p:last-child { max-width: 460px; margin: 18px 0 0; color: rgba(255, 255, 255, 0.72); font-size: 1rem; }
+.trust-note { display: flex; align-items: center; gap: 10px; color: rgba(255, 255, 255, 0.8); font-size: 0.85rem; }
+.trust-note span { display: grid; place-items: center; width: 26px; height: 26px; color: var(--deep-navy); background: var(--yellow); border-radius: 50%; font-size: 0.8rem; font-weight: 800; }
+.login-card { width: min(100%, 480px); min-width: 0; align-self: center; justify-self: center; padding: clamp(28px, 5vw, 56px); }
+.login-card > .environment-chip { margin-bottom: 20px; }
+.login-card h2 { margin-bottom: 4px; font-size: 1.5rem; letter-spacing: -0.015em; }
+.login-card form { display: grid; gap: 14px; margin-top: 26px; }
+.login-card input { min-height: 48px; font-size: 0.95rem; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.login-card input:focus { box-shadow: 0 0 0 4px rgba(11, 45, 91, 0.1); }
+.login-card .button.primary { min-height: 48px; font-size: 0.95rem; box-shadow: 0 2px 6px rgba(217, 161, 37, 0.35); }
+.login-card .button.primary:hover:not(:disabled) { box-shadow: 0 4px 12px rgba(217, 161, 37, 0.4); }
+#caps-warning { min-height: 0; }
+#login-error:not(:empty) { padding: 10px 12px; background: var(--error-bg); border: 1px solid rgba(192, 53, 53, 0.3); border-radius: var(--radius-sm); }
+.mobile-brand { display: none; margin-bottom: 26px; color: var(--navy); }

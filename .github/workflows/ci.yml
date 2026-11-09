@@ -1,0 +1,60 @@
+# Continuous integration. Enables automatically once this repo is pushed to
+# GitHub. No secrets required: API specs use mocked data, mobile specs run
+# in Jest, and typechecks need no credentials.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  preview-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:api
+      - run: npm run build:api
+
+  preview-admin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test --workspace=apps/preview-Admin
+
+  preview-home:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx jest
+        working-directory: apps/preview-Home
+      - run: npx tsc --noEmit -p tsconfig.json
+        working-directory: apps/preview-Home
+
+  preview-pro:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx jest
+        working-directory: apps/preview-Pro
+      - run: npx tsc --noEmit -p tsconfig.json
+        working-directory: apps/preview-Pro
