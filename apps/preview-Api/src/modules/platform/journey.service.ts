@@ -182,8 +182,14 @@ export class JourneyService {
     const client = j.request.client.userId === userId;
     const p = j.request.provider.presence;
     const {request, payloadHash, idempotencyKey, startCode, ...safe} = j;
+    // Plus terms travel with the booking so neither app hardcodes penalty or
+    // window figures — the values below are the same constants enforcement
+    // uses, and null for non-Plus bookings.
+    const plus = await isPlusClient(this.db, j.request.client.userId).catch(() => false);
     return {...safe, startCode: client && ['ARRIVED'].includes(j.stage) ? startCode : undefined,
       tracking: j.stage === 'EN_ROUTE' && p ? {latitude: p.latitude, longitude: p.longitude, updatedAt: p.observedAt, stale: !freshLocation(p)} : null,
+      plusTerms: plus ? {acceptWindowMs: PLUS_ACCEPT_WINDOW_MS, arrivalGraceMs: PLUS_ARRIVAL_GRACE_MS,
+        lateAcceptPenaltyPaisa: PENALTY_LATE_ACCEPT_Paisa, lateArrivalPenaltyPaisa: PENALTY_LATE_ARRIVAL_Paisa} : null,
       serverTime: new Date().toISOString()};
   }
 
