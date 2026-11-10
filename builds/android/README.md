@@ -4,13 +4,13 @@
 No "preview" anywhere in names or labels — they install as
 "Nahtreek Home" and "Nahtreek Pro".
 
-- `Nahtreek-Home-v57.apk` — Home v57 (`1.0.0`), preview API — FINAL. v56 plus: payment sync (lost Razorpay callbacks reconcile, no double charge) + Check status + Plus resubscribe + chat status pills + pro photo in Track row + map watchdog/retry.
-- `Nahtreek-Pro-v24.apk` — Pro v24 (`1.0.0`), preview API — FINAL. v23 plus: dues/membership never crash on old backends + membership resubscribe + payout-account section + chat threads with status + rebuilt chat layout + map hardening.
+- `Nahtreek-Home-v58.apk` — Home v58 (`1.0.0`), preview API — FINAL. v57 plus: reschedule card (pick new time both-sides) + delete-my-account + client cancel + dispute confirm actions.
+- `Nahtreek-Pro-v25.apk` — Pro v25 (`1.0.0`), preview API — FINAL. v24 plus: engineer cancel job (both-sides) + delete-my-account + dispute confirm.
 
 Final preview builds. All older APKs were removed; these two are the only
 installable files. Includes Plus ₹129, engineer 2% discount, speed SLA +
 penalties, AI express booking, Nahtreek logo on Razorpay checkout.
-Verified: API 403 + Home 209 + Pro 92 green, tsc clean x3.
+Verified: API 414 + Home 209 + Pro 92 green, tsc clean x3.
 
 Debug-signed `.internal` packages: they sit alongside any other apps and
 touch only test data. Maps work (preview key baked in).
