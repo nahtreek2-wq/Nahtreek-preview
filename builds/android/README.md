@@ -4,13 +4,13 @@
 No "preview" anywhere in names or labels — they install as
 "Nahtreek Home" and "Nahtreek Pro".
 
-- `Nahtreek-Home-v51.apk` — Home v51 (`1.0.0`), preview API — FINAL
-- `Nahtreek-Pro-v17.apk` — Pro v17 (`1.0.0`), preview API — FINAL
+- `Nahtreek-Home-v56.apk` — Home v56 (`1.0.0`), preview API — FINAL. v55 plus: AI planner uses cached plan figures (generic copy when offline), dead demo-notification seed deleted.
+- `Nahtreek-Pro-v23.apk` — Pro v23 (`1.0.0`), preview API — FINAL. v22 plus: membership price/rates/dues room render from server terms (changeable without app release), dues explainer same.
 
 Final preview builds. All older APKs were removed; these two are the only
 installable files. Includes Plus ₹129, engineer 2% discount, speed SLA +
 penalties, AI express booking, Nahtreek logo on Razorpay checkout.
-Verified: API 357 + Home 194 + Pro 68 green, live payment PAID.
+Verified: API 384 + Home 206 + Pro 85 green, live payment PAID.
 
 Debug-signed `.internal` packages: they sit alongside any other apps and
 touch only test data. Maps work (preview key baked in).

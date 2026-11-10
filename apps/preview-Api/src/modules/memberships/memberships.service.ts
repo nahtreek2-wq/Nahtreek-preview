@@ -6,6 +6,7 @@ import {PushService} from '../notifications/push.service';
 import {ChatGateway} from '../chat/chat.gateway';
 import {RazorpayError, RazorpayProvider, RazorpaySubscription} from '../payments/razorpay.provider';
 import {CancelMembershipDto} from './memberships.dto';
+import {PENALTY_LATE_ACCEPT_Paisa, PENALTY_LATE_ARRIVAL_Paisa, PLUS_ACCEPT_WINDOW_MS, PLUS_ARRIVAL_GRACE_MS, PLUS_DISCOUNT_BPS, PLUS_DISCOUNT_CAP_Paisa} from '../payments/commission';
 
 // Pro membership: a Razorpay recurring subscription that buys a lower
 // commission (7% vs 10%), discovery priority and the member badge. Access is
@@ -516,6 +517,22 @@ export class MembershipsService {
     if (!row) return {status: 'NONE' as MembershipStatus, effective: false, currentPeriodStart: null, currentPeriodEnd: null,
       cancelAtPeriodEnd: false, lastChargeAt: null, feePaisa: AI_SUBSCRIPTION_FEE_PAISE, freeUsed, freeQuota: AI_FREE_MESSAGES};
     return {...this.aiViewOf(row), freeUsed, freeQuota: AI_FREE_MESSAGES};
+  }
+
+  // Public plan card: every price and perk the apps show for NAHTREEK Plus.
+  // Apps must render from here so copy can never drift from the constants
+  // the server actually enforces.
+  aiPlan() {
+    return {
+      feePaisa: AI_SUBSCRIPTION_FEE_PAISE,
+      freeMessages: AI_FREE_MESSAGES,
+      consultDiscountBps: PLUS_DISCOUNT_BPS,
+      consultDiscountCapPaisa: PLUS_DISCOUNT_CAP_Paisa,
+      acceptWindowMs: PLUS_ACCEPT_WINDOW_MS,
+      arrivalGraceMs: PLUS_ARRIVAL_GRACE_MS,
+      lateAcceptPenaltyPaisa: PENALTY_LATE_ACCEPT_Paisa,
+      lateArrivalPenaltyPaisa: PENALTY_LATE_ARRIVAL_Paisa,
+    };
   }
 
   async aiSubscribe(userId: string) {

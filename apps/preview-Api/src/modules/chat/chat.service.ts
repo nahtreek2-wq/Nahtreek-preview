@@ -291,6 +291,8 @@ export class ChatService {
     const latest = conversation.messages[0];
     return {
       id: conversation.id,
+      // Lets apps group one person's job threads into a single chat row.
+      ...(other ? {otherUserId: other.userId} : {}),
       title: professionalName,
       subtitle: conversation.engineerRequest
         ? `Re: ${conversation.engineerRequest.projectTitle}`
