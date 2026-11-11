@@ -10,6 +10,19 @@ on:
 jobs:
   preview-api:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: nahtreek_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,6 +32,12 @@ jobs:
       - run: npm ci
       - run: npm run test:api
       - run: npm run build:api
+      - run: npm run lint --workspace=apps/preview-Api
+      - name: Validate migration chain on a scratch database
+        run: npx prisma migrate deploy
+        working-directory: apps/preview-Api
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nahtreek_test
 
   preview-admin:
     runs-on: ubuntu-latest
@@ -44,6 +63,8 @@ jobs:
         working-directory: apps/preview-Home
       - run: npx tsc --noEmit -p tsconfig.json
         working-directory: apps/preview-Home
+      - run: npx eslint src __tests__
+        working-directory: apps/preview-Home
 
   preview-pro:
     runs-on: ubuntu-latest
@@ -57,4 +78,6 @@ jobs:
       - run: npx jest
         working-directory: apps/preview-Pro
       - run: npx tsc --noEmit -p tsconfig.json
+        working-directory: apps/preview-Pro
+      - run: npx eslint src __tests__
         working-directory: apps/preview-Pro
