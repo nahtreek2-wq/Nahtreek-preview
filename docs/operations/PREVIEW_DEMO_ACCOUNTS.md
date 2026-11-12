@@ -23,15 +23,18 @@ be copied into production.
 
 ## Login and visibility
 
-- Sign in with each account's email and password from the local credential file
-  at `.local-private/NAHTREEK-preview-demo-credentials.json` (45 accounts:
+- NAHTREEK is OTP-only: there are no passwords anywhere. Sign in with each
+  account's email from the local roster file at
+  `.local-private/NAHTREEK-preview-demo-credentials.json` (45 accounts:
   `client-01…15`, `engineer-01…15`, `provider-01…15`, all `@nahtreek.example`).
   It is git-ignored and must stay private. Never upload or commit it.
-- Verified 3 Nov 2026: fresh Vercel deploy healthy, `client-01` login returns
-  tokens (HTTP 201), authenticated engineer discovery returns seeded profiles.
-- These accounts were inserted by a guarded preview seed, so their email is
-  marked verified for login. No OTP was sent and this **does not** test live
-  Gmail delivery or signup.
+- Request a code in the app, then enter the preview demo code `123456`
+  (preview only, set as `PREVIEW_DEMO_OTP` on the API project; test-domain
+  addresses cannot receive real email). Real addresses receive a real Gmail
+  code instead.
+- Verified 12 Nov 2026: OTP-only deploy healthy, password endpoints return
+  404, `engineer-01` demo-code login returns a session, and a synthetic
+  registration + cleanup round-trip left zero residue.
 - Engineer and service-provider accounts have the right role, category or
   specialization, home city, and an illustrated avatar. The 30 fictional
   profiles have a preview-only `VERIFIED` flag to exercise the existing Client
